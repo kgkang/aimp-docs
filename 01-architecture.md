@@ -39,6 +39,19 @@ EventBridge (cron(0/30 * * * ? *), 매시 정각·30분)
 
 ```
 ┌──────────────────────────────────────────────────┐
+
+## 2.2 Architecture Components
+
+- **Slack-bot**: Slack 채널 및 DM에서 사용자 메시지를 수신하는 인터페이스
+- **API Gateway**: Slack Events API와 Lambda 함수 사이의 진입점 (POST /slack/events)
+- **Slack handler (Lambda A)**: 수신된 이벤트의 서명을 검증하고 즉시 200 응답을 반환하는 비차단 핸들러
+- **AgentCore Invoker (Lambda B)**: 검증된 이벤트를 비동기식으로 AgentCore 런타임에 전달
+- **Scheduled Reporter (Lambda C)**: EventBridge 크론 트리거로 정기적인 보고서를 생성하여 발송
+- **EventBridge**: 크론 표현식(0/30 * * * ? *)에 따라 30분 간격으로 보고서 생성 작업 자동 트리거
+- **AgentCore Runtime**: AWS 리소스 조회 및 분석을 수행하는 지능형 에이전트 실행 환경
+- **AgentCore Identity**: API 키 및 자격증명을 안전하게 관리하고 주입하는 컴포넌트
+- **Tools**: AgentCore가 AWS API를 호출하여 실제 작업을 수행하는 실행 도구 모음
+
 │  AWS Cloud (ap-northeast-2)                       │
 │                                                   │
 │  ┌──────────────┐    ┌───────────────────────┐   │
@@ -74,7 +87,7 @@ EventBridge (cron(0/30 * * * ? *), 매시 정각·30분)
 │  ┌──────────────────▼──────────────────────────┐  │
 │  │  AgentCore Identity Vault                   │  │
 │  │  slack-bot-token (ApiKeyProvider)           │  │
-│  └─────────────────────────────────────────────┘  │
+│  └─────────────────────────────────────────────┘  │흐름 3
 │                                                   │
 │  ┌───────────────────────────────────────────┐   │
 │  │  SSM Parameter Store                       │   │
