@@ -131,6 +131,55 @@ def lambda_handler(event: dict, context) -> None:
 
 ---
 
+## Lambda C — scheduled_reporter/handler.py
+
+### `lambda_handler(event, context)` — 진입점
+```python
+def lambda_handler(_event, _context) -> None:
+    """
+    EventBridge Schedule에서 호출. AgentCore에 정기 보고를 요청하고 즉시 반환.
+    AgentCore는 연결 종료 후에도 독립적으로 실행을 계속하여 Slack에 직접 보고.
+    """
+```
+
+**처리 순서:**
+1. `session_id = f"scheduled-report-{uuid.uuid4().hex}"` — 실행마다 고유 세션 생성
+2. `response_target = {"type": "channel", "channel": SLACK_REPORT_CHANNEL}`
+3. `invoke_agent_runtime()` 호출 (read_timeout=15s)
+4. `ReadTimeoutError` → 정상 경로 (fire-and-forget 완료 신호)
+5. 그 외 예외 → 로그 기록 후 raise
+
+**fire-and-forget 구현 방식:**
+
+```
+Lambda                    AgentCore
+   │──── HTTP POST ─────────→ │  요청 수신, 세션 시작
+   │                          │  (독립적으로 처리 계속)
+   │  [read_timeout=15s]      │
+   │  ReadTimeoutError 발생   │
+   │  Lambda 즉시 반환        │
+                              │  도구 실행 / 보고서 생성 중...
+                              │──── Slack POST ─→ 완료
+```
+
+**boto3 클라이언트 설정:**
+```python
+Config(
+    connect_timeout=10,
+    read_timeout=15,          # 요청 전송 확인 후 즉시 반환
+    retries={"max_attempts": 1},  # 자동 재시도 비활성화
+)
+```
+
+> **ReadTimeoutError를 정상 경로로 처리하는 근거**: AgentCore Runtime은 HTTP 연결이 종료되어도 컨테이너 내 에이전트 실행을 계속한다. ConcurrencyException 로그 분석(2026-05-04)에서 연결 끊김 후에도 에이전트가 완료되고 Slack 보고가 이루어짐을 확인.
+
+**보고 항목 (INPUT_TEXT):**
+- 이번 달 AWS 서비스별 비용 현황 (상위 10개)
+- 유휴 리소스 목록 및 예상 절감액 (EC2/RDS/ELB/ElastiCache/NAT GW/EBS/EIP/Lambda)
+- 생성 60일 초과 자원 목록 (유형·이름·생성일·경과일수·생성자)
+
+---
+
 ## template.yaml 핵심 구조
 
 ```yaml
@@ -159,6 +208,18 @@ Resources:
       AGENTCORE_ENDPOINT:      # SSM resolve
     Policies:
       - bedrock-agentcore:InvokeAgentRuntime
+
+  ScheduledReporterFunction:   # Lambda C
+    Timeout: 30                # read_timeout(15) + connect_timeout(10) + 여유
+    Environment:
+      AGENTCORE_ENDPOINT:      # SSM resolve
+    Policies:
+      - bedrock-agentcore:InvokeAgentRuntime
+    Events:
+      DailyReport:
+        Schedule: "cron(0 * * * ? *)"  # 매시 정각
+        RetryPolicy:
+          MaximumRetryAttempts: 0      # Lambda 실패 시 EventBridge 재시도 없음
 ```
 
 ## samconfig.toml 구조

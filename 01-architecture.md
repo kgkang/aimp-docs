@@ -50,8 +50,8 @@ EventBridge (cron(0/30 * * * ? *), 매시 정각·30분)
 │  │  Lambda A    │    │       Lambda C         │   │
 │  │SlackReceiver │    │  ScheduledReporter     │   │
 │  │  - 서명 검증  │    │  - 비용/유휴/60일 보고  │   │
-│  │  - 이벤트 분기│    │  - 고정 session_id     │   │
-│  │  - 즉시 200  │    │  - AgentCore 호출      │   │
+│  │  - 이벤트 분기│    │  - UUID session_id     │   │
+│  │  - 즉시 200  │    │  - fire-and-forget     │   │
 │  └──────┬───────┘    └──────────┬────────────┘   │
 │         │ Invoke(Event)         │                 │
 │  ┌──────▼───────┐               │                 │
@@ -96,7 +96,7 @@ Lambda가 AgentCore를 호출할 때 전달하는 payload:
 ```json
 {
   "input_text": "사용자 메시지 (멘션 제거 후) 또는 정기 보고 프롬프트",
-  "session_id": "thread_ts | user_id | scheduled-report-periodic-fixed-v1",
+  "session_id": "thread_ts | user_id | scheduled-report-{uuid32hex}",
   "response_target": {
     "type": "thread | dm | channel",
     "channel": "C... or D...",
@@ -113,7 +113,7 @@ AgentCore는 응답 완료 후 response_target을 참조하여 직접 Slack API 
 |--------|-----------|------|
 | app_mention | thread_ts | thread 단위 대화 유지 |
 | message.im | Slack user_id | 사용자 단위 대화 유지 |
-| EventBridge | `scheduled-report-periodic-fixed-v1` (고정) | 정기 보고 전용 세션, 실행 간 컨텍스트 공유 |
+| EventBridge | `scheduled-report-{uuid32hex}` (실행마다 고유) | 실행 간 히스토리 오염 방지, 동시 실행 충돌 방지 |
 
 ## IAM 권한 설계
 
